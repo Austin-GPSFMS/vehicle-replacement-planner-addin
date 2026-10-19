@@ -1,0 +1,15 @@
+{
+  "name": "Vehicle Replacement Planner",
+  "supportEmail": "support@gpsfms.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://austin-gpsfms.github.io/vehicle-replacement-planner-addin/dist/index.html",
+      "path": "AdministrationLink/",
+      "menuName": {
+        "en": "Vehicle Replacement Planner"
+      }
+    }
+  ],
+  "isSigned": false
+}

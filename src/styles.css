@@ -1,0 +1,171 @@
+/**
+ * Global styles for Vehicle Replacement Planner.
+ *
+ * Zenith ships its design tokens via @geotab/zenith/dist/index.css. Anything
+ * below layers GPSFMS-specific page chrome on top (same vocabulary as the
+ * recall and intelligent-zoning add-ins). Lean on Zenith primitives first —
+ * only add custom CSS where Zenith doesn't already cover it.
+ */
+
+@import "@geotab/zenith/dist/index.css";
+
+:root {
+  --gpsfms-navy: #25477b;
+  --gpsfms-dark: #1c2b39;
+  --gpsfms-blue: #0084c2;
+  --gpsfms-blue-soft: #e5f1f8;
+  --gpsfms-light: #f4f4f4;
+}
+
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+#root { display: flex; flex-direction: column; }
+
+.vrp-page {
+  font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--gpsfms-dark);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.vrp-page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.vrp-page-header h2 { margin: 0; font-size: 20px; color: var(--gpsfms-dark); }
+.vrp-page-header p { margin: 4px 0 0; color: #6b7280; font-size: 13px; max-width: 820px; }
+.vrp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vrp-groups-picker { min-width: 220px; }
+
+.vrp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.vrp-toolbar > * { min-width: 0; }
+.vrp-muted { color: #6b7280; font-size: 13px; }
+.vrp-sub { display: block; font-size: 11px; margin-top: 2px; }
+.vrp-strong { font-weight: 600; white-space: nowrap; }
+.vrp-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--gpsfms-dark); cursor: pointer; }
+.vrp-link { background: none; border: 0; padding: 0; color: var(--gpsfms-blue); font: inherit; font-size: 13px; cursor: pointer; align-self: flex-end; }
+.vrp-link:hover { text-decoration: underline; }
+
+/* ---- Criteria sliders ---- */
+.vrp-criteria {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+.vrp-criterion {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--gpsfms-blue);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 0.15s ease;
+}
+.vrp-criterion-off { border-left-color: #d1d5db; }
+.vrp-criterion-off .vrp-slider,
+.vrp-criterion-off .vrp-criterion-value,
+.vrp-criterion-off .vrp-criterion-hint { opacity: 0.45; }
+.vrp-criterion-aux { border-left-color: var(--gpsfms-navy); }
+.vrp-criterion-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vrp-criterion-title { font-weight: 600; font-size: 14px; }
+.vrp-criterion-value { font-size: 18px; font-weight: 600; color: var(--gpsfms-navy); font-variant-numeric: tabular-nums; }
+.vrp-criterion-foot { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.vrp-criterion-foot > * { min-width: 140px; }
+.vrp-criterion-hint { margin: 0; font-size: 12px; color: #6b7280; }
+.vrp-field { display: flex; flex-direction: column; gap: 4px; }
+.vrp-field-label { font-size: 12px; color: #4b5563; }
+
+.vrp-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--gpsfms-blue) 0 var(--vrp-fill, 0%), #e5e7eb var(--vrp-fill, 0%) 100%);
+  outline: none;
+  margin: 6px 0;
+  cursor: pointer;
+}
+.vrp-slider:disabled { cursor: not-allowed; background: linear-gradient(to right, #9ca3af 0 var(--vrp-fill, 0%), #e5e7eb var(--vrp-fill, 0%) 100%); }
+.vrp-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--gpsfms-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.vrp-slider::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--gpsfms-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.vrp-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--gpsfms-blue-soft); }
+.vrp-slider:disabled::-webkit-slider-thumb { border-color: #9ca3af; }
+.vrp-slider:disabled::-moz-range-thumb { border-color: #9ca3af; }
+
+/* ---- Banners / progress ---- */
+.vrp-banners { display: flex; flex-direction: column; gap: 8px; }
+.vrp-banners:empty { display: none; }
+.vrp-progress {
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+  padding: 8px 12px; border-radius: 4px; font-size: 13px;
+  display: flex; align-items: center; gap: 10px;
+}
+.vrp-progress-bar { flex: 1; min-width: 160px; }
+
+/* ---- Summary ---- */
+.vrp-summary { display: flex; flex-direction: column; gap: 6px; }
+.vrp-tile-value { font-size: 22px; font-weight: 600; color: var(--gpsfms-dark); }
+.vrp-tile-warn { color: #991b1b; }
+.vrp-tile-info { color: #92400e; }
+.vrp-tile-ok { color: #166534; }
+.vrp-tile-muted { color: #6b7280; }
+
+/* ---- Settings ---- */
+.vrp-settings { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px 16px; }
+.vrp-settings-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.vrp-settings-head h3 { margin: 0; font-size: 16px; }
+.vrp-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 24px; align-items: start; }
+
+/* ---- Table ---- */
+.vrp-table-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; overflow-x: auto; }
+.vrp-busy { opacity: 0.6; }
+.vrp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vrp-table th, .vrp-table td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top;
+}
+.vrp-table th {
+  background: #f3f4f6; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: #4b5563; white-space: nowrap; position: sticky; top: 0; z-index: 1; cursor: pointer; user-select: none;
+}
+.vrp-table th:hover { background: #e5e7eb; }
+.vrp-table th.vrp-sorted { color: var(--gpsfms-navy); }
+.vrp-sort-arrow { margin-left: 4px; font-size: 9px; }
+.vrp-table tr:last-child td { border-bottom: 0; }
+.vrp-table .vrp-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vrp-asset { white-space: nowrap; font-weight: 600; }
+.vrp-asset a { color: var(--gpsfms-blue); text-decoration: none; }
+.vrp-asset a:hover { text-decoration: underline; }
+.vrp-groups { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrp-row:hover td { background: #f9fafb; }
+.vrp-row-sell td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+.vrp-row-approaching td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+
+.vrp-pill {
+  display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.02em; white-space: nowrap; background: var(--gpsfms-blue-soft); color: var(--gpsfms-navy);
+}
+.vrp-pill-small { font-size: 10px; padding: 0 6px; margin-left: 6px; font-weight: 500; }
+.vrp-pill-ok { background: #dcfce7; color: #166534; }
+.vrp-pill-warn { background: #fee2e2; color: #991b1b; }
+.vrp-pill-info { background: #fef3c7; color: #92400e; }
+.vrp-pill-muted { background: #f3f4f6; color: #4b5563; }
+
+.vrp-empty {
+  padding: 24px; text-align: center; color: #6b7280; background: #f9fafb;
+  border: 1px dashed #e5e7eb; border-radius: 6px;
+}
