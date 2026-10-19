@@ -112,6 +112,8 @@ export interface Settings {
   groupIds: string[];
   /** Quota guard: max MyGeotab calls per minute the scan will issue. */
   callsPerMinute: number;
+  /** Max per-vehicle fallback lookups (per instant) for vehicles the fleet-wide windows missed. */
+  deepLookupMax: number;
   /** Include devices whose VIN decode fails (they show as "Missing VIN"). */
   includeNoVin: boolean;
 }
@@ -164,6 +166,9 @@ export interface ScanMeta {
   vinDecodeAvailable: boolean;
   vinDecodeError?: string;
   odometerReadings: number;
+  baselineReadings: number;
+  deepLookups: number;
+  rowsScanned: number;
   apiCalls: number;
   ranAt: number;
   lookbackMonths: number;

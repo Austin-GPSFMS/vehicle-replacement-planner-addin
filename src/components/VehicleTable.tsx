@@ -3,7 +3,8 @@
  * pill and the projected month each threshold is reached.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Button } from "@geotab/zenith";
 import type { Criteria, VehicleRow } from "../types";
 import { formatDate, formatInt, formatMonthYear, formatMonths, metersToUnit } from "../utils/format";
 import { VERDICT_LABEL, VERDICT_TONE, VIN_STATUS_LABEL } from "../utils/labels";
@@ -37,6 +38,8 @@ function cmp(a: string | number | null | undefined, b: string | number | null | 
 }
 
 const VERDICT_RANK: Record<VehicleRow["verdict"], number> = { sell: 0, approaching: 1, ok: 2, "no-data": 3 };
+/** Rows rendered before "Show all" — keeps a 3,000-vehicle database snappy. */
+const PAGE = 300;
 
 function sortValue(r: VehicleRow, k: SortKey): string | number | null {
   switch (k) {
@@ -87,7 +90,10 @@ function VinCell({ r }: { r: VehicleRow }) {
 export function VehicleTable({ rows, criteria, busy, myGeotabBase }: VehicleTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("verdict");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [limit, setLimit] = useState(PAGE);
   const u = criteria.units;
+  // Back to the first page whenever the row set changes (filter/tab/scan).
+  useEffect(() => setLimit(PAGE), [rows]);
 
   const sorted = useMemo(() => {
     const out = [...rows];
@@ -155,7 +161,7 @@ export function VehicleTable({ rows, criteria, busy, myGeotabBase }: VehicleTabl
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r) => (
+          {sorted.slice(0, limit).map((r) => (
             <tr key={r.deviceId} className={`vrp-row vrp-row-${r.verdict}`}>
               <td>
                 <VerdictPill r={r} />
@@ -201,6 +207,10 @@ export function VehicleTable({ rows, criteria, busy, myGeotabBase }: VehicleTabl
                     <span className="vrp-muted">—</span>
                   ) : r.monthsToMileage <= 0 ? (
                     <span className="vrp-strong">Already past</span>
+                  ) : !r.mileageDate ? (
+                    <span className="vrp-muted" title="At the current rate this vehicle will not reach the threshold in any useful horizon">
+                      &gt; 50 yr
+                    </span>
                   ) : (
                     <>
                       <span className="vrp-strong">{formatMonthYear(r.mileageDate)}</span>
@@ -227,6 +237,19 @@ export function VehicleTable({ rows, criteria, busy, myGeotabBase }: VehicleTabl
           ))}
         </tbody>
       </table>
+      {sorted.length > limit && (
+        <div className="vrp-table-foot">
+          <span className="vrp-muted">
+            Showing {limit.toLocaleString()} of {sorted.length.toLocaleString()} vehicles
+          </span>
+          <Button type="tertiary" onClick={() => setLimit((l) => l + PAGE * 2)}>
+            Show {Math.min(PAGE * 2, sorted.length - limit).toLocaleString()} more
+          </Button>
+          <Button type="tertiary" onClick={() => setLimit(sorted.length)}>
+            Show all
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,7 +29,8 @@ for (const f of ["index.html", ...readdirSync(resolve(site, "assets")).map((a) =
 const bundle = resolve(here, ".build/rules.mjs");
 await build({ entryPoints: [resolve(here, "rules-entry.ts")], bundle: true, format: "esm", platform: "node", outfile: bundle, logLevel: "silent" });
 const m = await import(pathToFileURL(bundle).href);
-const fleet = m.makeDemoFleet(36, 7, new Date(), 6);
+const FLEET_SIZE = Number(process.env.FLEET || 2800);
+const fleet = m.makeDemoFleet(FLEET_SIZE, 7, new Date(), 6);
 
 const types = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".woff2": "font/woff2", ".woff": "font/woff", ".otf": "font/otf", ".map": "application/json" };
 const server = createServer((req, res) => {
@@ -55,13 +56,25 @@ await page.addInitScript((fx) => {
         case "Device": return fx.devices;
         case "StatusData": {
           const s = params.search ?? {};
-          const id = s.deviceSearch?.id;
-          const at = new Date(s.fromDate).getTime();
-          const o = fx.odometer[id];
-          if (!o) return [];
-          // "now" lookups are within a day of now; anything else is the baseline.
-          const list = Math.abs(at - nowMs) < 86400000 ? o.now : o.base;
-          return list.map((r) => ({ device: { id }, diagnostic: { id: r.diagnosticId }, dateTime: r.dateTime, data: r.meters }));
+          const from = new Date(s.fromDate).getTime();
+          const to = new Date(s.toDate).getTime();
+          const row = (id, r) => ({ device: { id }, diagnostic: { id: r.diagnosticId }, dateTime: r.dateTime, data: r.meters });
+          if (s.deviceSearch) {
+            // Per-device "nearest" lookup: return the records bounding the instant.
+            const o = fx.odometer[s.deviceSearch.id];
+            if (!o) return [];
+            const list = Math.abs(from - nowMs) < 86400000 ? o.now : o.base;
+            return list.map((r) => row(s.deviceSearch.id, r));
+          }
+          // Fleet-wide window: every reading inside [from, to].
+          const out = [];
+          for (const [id, o] of Object.entries(fx.odometer)) {
+            for (const r of [...o.now, ...o.base]) {
+              const t = new Date(r.dateTime).getTime();
+              if (t >= from && t <= to) out.push(row(id, r));
+            }
+          }
+          return out;
         }
       }
     }
@@ -85,8 +98,11 @@ await page.addInitScript((fx) => {
   });
 }, fleet);
 
+const t0 = Date.now();
 await page.goto("http://127.0.0.1:5181/index.html");
-await page.waitForSelector(".vrp-table", { timeout: 60000 });
+await page.waitForSelector(".vrp-table", { timeout: 120000 });
+console.log(`fleet of ${FLEET_SIZE}: table rendered ${((Date.now() - t0) / 1000).toFixed(1)}s after load`);
+console.log("header:", await page.$eval(".vrp-page-header p", (e) => e.textContent.trim()));
 await page.waitForTimeout(400);
 
 const tilesBefore = await page.$$eval(".vrp-tile-value", (els) => els.map((e) => e.textContent.trim()));
@@ -132,6 +148,9 @@ if (Number(tilesLow[0].replace(/,/g, "")) < Number(tilesBefore[0].replace(/,/g, 
 if (headers.some((h) => /Turns/.test(h))) assertMsgs.push("age column still shown after toggling age off");
 if (!sample.some((s) => /FORD|CHEVROLET|RAM|INTERNATIONAL|FREIGHTLINER|TOYOTA/.test(s))) assertMsgs.push("no decoded make in sample rows");
 if (errors.length) assertMsgs.push("console errors: " + errors.join(" || "));
+if (await page.$(".vrp-error")) assertMsgs.push("error boundary tripped");
+const foot = await page.$(".vrp-table-foot");
+if (FLEET_SIZE > 300 && !foot) assertMsgs.push("expected the show-more footer on a big fleet");
 
 await browser.close();
 server.close();

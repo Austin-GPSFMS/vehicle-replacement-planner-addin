@@ -1,6 +1,6 @@
 {
   "name": "vehicle-replacement-planner-addin",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "GPSFMS Vehicle Replacement Planner — MyGeotab add-in (time-to-sell criteria + mileage projection)",
   "private": true,
   "type": "module",

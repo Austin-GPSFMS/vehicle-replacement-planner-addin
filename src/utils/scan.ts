@@ -20,6 +20,8 @@ import type {
   VinInfo,
 } from "../types";
 import {
+  LATEST_WINDOWS,
+  NEAREST_WINDOWS,
   ODOMETER_ADJ,
   ODOMETER_RAW,
   Pacer,
@@ -91,18 +93,30 @@ export async function runScan(
 
   // Odometer now + baseline.
   const ids = devices.map((d) => d.id);
-  const nowAt = await fetchOdometerAt(api, ids, now, pacer, "Reading current odometer", progress, shouldCancel);
+  const nowRes = await fetchOdometerAt(
+    api,
+    ids,
+    now,
+    pacer,
+    "Reading current odometer",
+    progress,
+    { mode: "latest", windows: LATEST_WINDOWS, deepMax: settings.deepLookupMax },
+    shouldCancel
+  );
   if (shouldCancel()) throw new Error("Cancelled");
   const baselineInstant = addMonths(now, -settings.criteria.lookbackMonths);
-  const baseAt = await fetchOdometerAt(
+  const baseRes = await fetchOdometerAt(
     api,
     ids,
     baselineInstant,
     pacer,
     `Reading odometer ${settings.criteria.lookbackMonths} months ago`,
     progress,
+    { mode: "nearest", windows: NEAREST_WINDOWS, deepMax: settings.deepLookupMax },
     shouldCancel
   );
+  const nowAt = nowRes.samples;
+  const baseAt = baseRes.samples;
 
   const data: VehicleData[] = devices.map((d) => {
     const vin = vinByDevice.get(d.id) ?? "";
@@ -131,6 +145,9 @@ export async function runScan(
     vinDecodeAvailable: decoded.available,
     vinDecodeError: decoded.error,
     odometerReadings: nowAt.size,
+    baselineReadings: baseAt.size,
+    deepLookups: nowRes.deepLookups + baseRes.deepLookups,
+    rowsScanned: nowRes.rowsScanned + baseRes.rowsScanned,
     apiCalls: pacer.total,
     ranAt: now.getTime(),
     lookbackMonths: settings.criteria.lookbackMonths,

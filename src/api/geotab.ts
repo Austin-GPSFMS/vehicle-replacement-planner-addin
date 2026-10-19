@@ -6,10 +6,11 @@
  * and surface typed errors.
  *
  * Quota notes: MyGeotab allows ~1000 API calls per user per minute and every
- * child of a multiCall counts individually. The odometer scan issues two
- * StatusData lookups per vehicle (now + baseline), so the `Pacer` below keeps
- * the rolling one-minute count under the configured cap and simply takes
- * longer on big databases instead of tripping "API calls quota exceeded".
+ * child of a multiCall counts individually. The odometer scan therefore reads
+ * the whole fleet in a few windowed StatusData calls (50k rows each) and only
+ * falls back to one call per vehicle, capped, for vehicles the windows
+ * missed. The `Pacer` keeps the rolling one-minute count under the configured
+ * cap so a big database takes longer instead of tripping "quota exceeded".
  */
 
 import type {
@@ -315,23 +316,26 @@ export async function decodeVins(
       logged = true;
       console.info("[VRP] DecodeVins sample result:", Array.isArray(results) ? results[0] : results);
     }
-    const list: unknown[] = Array.isArray(results)
-      ? results
-      : results && typeof results === "object"
-        ? Object.values(results as Record<string, unknown>)
-        : [];
-    // Match by the vin field when present, else by position.
-    const positional = list.length === batch.length;
-    list.forEach((item, idx) => {
-      let vin = "";
-      if (item && typeof item === "object") {
-        const v = pick(item as Record<string, unknown>, ["vin", "vehicleidentificationnumber"]);
-        if (typeof v === "string") vin = v.trim().toUpperCase();
+    if (Array.isArray(results)) {
+      // Match by the vin field when present, else by position.
+      const positional = results.length === batch.length;
+      results.forEach((item, idx) => {
+        let vin = "";
+        if (item && typeof item === "object") {
+          const v = pick(item as Record<string, unknown>, ["vin", "vehicleidentificationnumber"]);
+          if (typeof v === "string") vin = v.trim().toUpperCase();
+        }
+        if (!vin && positional) vin = batch[idx];
+        if (!vin) return;
+        byVin.set(vin, normalizeDecoded(vin, item));
+      });
+    } else if (results && typeof results === "object") {
+      // Keyed by VIN.
+      for (const [k, item] of Object.entries(results as Record<string, unknown>)) {
+        const vin = k.trim().toUpperCase();
+        if (batch.includes(vin)) byVin.set(vin, normalizeDecoded(vin, item));
       }
-      if (!vin && positional) vin = batch[idx];
-      if (!vin) return;
-      byVin.set(vin, normalizeDecoded(vin, item));
-    });
+    }
   }
   for (const vin of todo) {
     if (!byVin.has(vin)) {
@@ -348,18 +352,116 @@ export async function decodeVins(
 }
 
 // ---------------------------------------------------------------------------
-// Odometer at an instant
+// Odometer at an instant — fleet-wide windows first, per-device only as a
+// capped fallback
 // ---------------------------------------------------------------------------
 
-/** Per device: nearest sample at `instant`, keyed by diagnostic id. */
+/** Per device: best sample at `instant`, keyed by diagnostic id. */
 export type OdometerAtResult = Map<string, Map<string, OdometerSample>>;
 
+const DAY = 86400000;
+const MAX_PAGES_PER_WINDOW = 12;
+let statusPropertySelectorOk: boolean | null = null;
+
+function timeOf(v: string | Date | undefined): number {
+  if (v == null) return NaN;
+  return typeof v === "string" ? new Date(v).getTime() : (v as Date).getTime();
+}
+
 /**
- * One StatusData call per device with fromDate == toDate == instant: MyGeotab
- * returns the records that bound that moment (the last one before and, when
- * one exists, the first after). We keep the nearest per diagnostic; the
- * caller computes the average over the *actual* span between samples, so a
- * vehicle installed after the baseline instant still gets a correct rate.
+ * One fleet-wide StatusData query for the odometer diagnostic between two
+ * instants, paged on dateTime when a page fills. Returns every row (both the
+ * adjusted and the raw odometer series come back for this diagnostic search).
+ */
+async function fetchOdometerWindow(
+  api: GeotabApi,
+  pacer: Pacer,
+  from: Date,
+  to: Date,
+  onPage: (page: number, rows: number) => void,
+  shouldCancel?: () => boolean
+): Promise<GeotabStatusData[]> {
+  const out: GeotabStatusData[] = [];
+  let cursor = from.getTime();
+  const end = to.getTime();
+  let page = 0;
+  while (cursor < end && page < MAX_PAGES_PER_WINDOW) {
+    if (shouldCancel?.()) throw new Error("Cancelled");
+    page += 1;
+    await pacer.reserve(1, shouldCancel);
+    const base = {
+      typeName: "StatusData",
+      search: {
+        diagnosticSearch: { id: ODOMETER_ADJ },
+        fromDate: new Date(cursor).toISOString(),
+        toDate: to.toISOString(),
+      },
+      resultsLimit: RESULTS_LIMIT,
+    };
+    let rows: GeotabStatusData[];
+    if (statusPropertySelectorOk !== false) {
+      try {
+        rows = await apiCall<GeotabStatusData[]>(api, "Get", {
+          ...base,
+          propertySelector: { fields: ["device", "diagnostic", "dateTime", "data"], isIncluded: true },
+        });
+        statusPropertySelectorOk = true;
+      } catch (e) {
+        if (statusPropertySelectorOk === true) throw e;
+        statusPropertySelectorOk = false;
+        await pacer.reserve(1, shouldCancel);
+        rows = await apiCall<GeotabStatusData[]>(api, "Get", base);
+      }
+    } else {
+      rows = await apiCall<GeotabStatusData[]>(api, "Get", base);
+    }
+    onPage(page, rows.length);
+    out.push(...rows);
+    if (rows.length < RESULTS_LIMIT) break;
+    let last = cursor;
+    for (const r of rows) {
+      const t = timeOf(r.dateTime);
+      if (t > last) last = t;
+    }
+    cursor = Math.max(last, cursor + 1);
+  }
+  return out;
+}
+
+export interface OdometerFetchOptions {
+  /** "latest": newest reading at or before the instant. "nearest": closest reading either side. */
+  mode: "latest" | "nearest";
+  /** Windows to scan, as [startOffsetDays, endOffsetDays] relative to the instant, in scan order. */
+  windows: Array<[number, number]>;
+  /** Max per-device fallback lookups for vehicles the windows didn't cover. */
+  deepMax: number;
+}
+
+export const LATEST_WINDOWS: Array<[number, number]> = [
+  [-0.5, 0],
+  [-3, -0.5],
+  [-14, -3],
+];
+export const NEAREST_WINDOWS: Array<[number, number]> = [
+  [0, 1],
+  [-2, 0],
+  [1, 7],
+  [-7, -2],
+];
+
+/**
+ * Odometer per device at an instant.
+ *
+ * 1. Fleet-wide windows around the instant (a handful of 50k-row calls for
+ *    the whole database) — "latest" keeps the newest reading per device and
+ *    diagnostic, "nearest" the one closest to the instant.
+ * 2. Devices still uncovered get one StatusData call each with
+ *    fromDate == toDate == instant (MyGeotab returns the records bounding
+ *    that moment), batched 50 per multiCall and capped by `deepMax`.
+ *
+ * The caller computes the rate over the *actual* span between its two
+ * samples, so a vehicle installed after the baseline instant still gets a
+ * correct rate.
  */
 export async function fetchOdometerAt(
   api: GeotabApi,
@@ -368,17 +470,73 @@ export async function fetchOdometerAt(
   pacer: Pacer,
   label: string,
   onProgress: (text: string, pct: number | null) => void,
+  opts: OdometerFetchOptions,
   shouldCancel?: () => boolean
-): Promise<OdometerAtResult> {
+): Promise<{ samples: OdometerAtResult; deepLookups: number; rowsScanned: number }> {
   const out: OdometerAtResult = new Map();
-  const at = instant.toISOString();
+  const wanted = new Set(deviceIds);
   const target = instant.getTime();
-  for (let i = 0; i < deviceIds.length; i += ODO_BATCH) {
+  let rowsScanned = 0;
+
+  const better = (cur: OdometerSample | undefined, candidateTime: number): boolean => {
+    if (!cur) return true;
+    const curTime = timeOf(cur.dateTime);
+    return opts.mode === "latest" ? candidateTime > curTime : Math.abs(candidateTime - target) < Math.abs(curTime - target);
+  };
+  const absorb = (rows: GeotabStatusData[]) => {
+    for (const r of rows) {
+      const id = r.device?.id;
+      if (!id || !wanted.has(id) || typeof r.data !== "number" || r.dateTime == null) continue;
+      const t = timeOf(r.dateTime);
+      if (!Number.isFinite(t)) continue;
+      if (opts.mode === "latest" && t > target + 60000) continue;
+      const diag = r.diagnostic?.id ?? ODOMETER_ADJ;
+      let perDiag = out.get(id);
+      if (!perDiag) {
+        perDiag = new Map();
+        out.set(id, perDiag);
+      }
+      if (better(perDiag.get(diag), t)) {
+        perDiag.set(diag, { meters: r.data, dateTime: new Date(t).toISOString(), diagnosticId: diag });
+      }
+    }
+  };
+  const covered = () => {
+    let n = 0;
+    for (const id of wanted) if (out.get(id)?.has(ODOMETER_ADJ)) n += 1;
+    return n;
+  };
+
+  // 1. Fleet-wide windows.
+  for (let w = 0; w < opts.windows.length; w++) {
+    if (covered() >= wanted.size) break;
+    const [a, b] = opts.windows[w];
+    const from = new Date(target + a * DAY);
+    const to = new Date(Math.min(target + b * DAY, Date.now()));
+    if (from >= to) continue;
+    const rows = await fetchOdometerWindow(
+      api,
+      pacer,
+      from,
+      to,
+      (page, n) => onProgress(`${label} — window ${w + 1}/${opts.windows.length}, page ${page} (${n.toLocaleString()} readings)…`, null),
+      shouldCancel
+    );
+    rowsScanned += rows.length;
+    absorb(rows);
+    onProgress(`${label} — ${covered().toLocaleString()} / ${wanted.size.toLocaleString()} vehicles covered…`, Math.round((covered() / Math.max(1, wanted.size)) * 100));
+  }
+
+  // 2. Per-device fallback for the remainder (vehicles silent across every window).
+  const todo = deviceIds.filter((id) => !out.has(id)).slice(0, Math.max(0, opts.deepMax));
+  const at = instant.toISOString();
+  let deepLookups = 0;
+  for (let i = 0; i < todo.length; i += ODO_BATCH) {
     if (shouldCancel?.()) throw new Error("Cancelled");
-    const batch = deviceIds.slice(i, i + ODO_BATCH);
+    const batch = todo.slice(i, i + ODO_BATCH);
     onProgress(
-      `${label} (${Math.min(i + batch.length, deviceIds.length)} / ${deviceIds.length})…`,
-      Math.round(((i + batch.length) / deviceIds.length) * 100)
+      `${label} — looking up ${Math.min(i + batch.length, todo.length)} / ${todo.length} vehicles individually…`,
+      Math.round(((i + batch.length) / todo.length) * 100)
     );
     await pacer.reserve(batch.length, shouldCancel);
     const results = await apiMultiCall<GeotabStatusData[]>(
@@ -387,30 +545,13 @@ export async function fetchOdometerAt(
         "Get",
         {
           typeName: "StatusData",
-          search: {
-            deviceSearch: { id },
-            diagnosticSearch: { id: ODOMETER_ADJ },
-            fromDate: at,
-            toDate: at,
-          },
+          search: { deviceSearch: { id }, diagnosticSearch: { id: ODOMETER_ADJ }, fromDate: at, toDate: at },
           resultsLimit: 10,
         },
       ])
     );
-    results.forEach((rows, idx) => {
-      const id = batch[idx];
-      const perDiag = new Map<string, OdometerSample>();
-      for (const r of rows ?? []) {
-        if (typeof r.data !== "number" || !r.dateTime) continue;
-        const diag = r.diagnostic?.id ?? ODOMETER_ADJ;
-        const cur = perDiag.get(diag);
-        const dist = Math.abs(new Date(r.dateTime).getTime() - target);
-        if (!cur || dist < Math.abs(new Date(cur.dateTime).getTime() - target)) {
-          perDiag.set(diag, { meters: r.data, dateTime: r.dateTime, diagnosticId: diag });
-        }
-      }
-      if (perDiag.size) out.set(id, perDiag);
-    });
+    deepLookups += batch.length;
+    results.forEach((rows, idx) => absorb((rows ?? []).map((r) => ({ ...r, device: r.device ?? { id: batch[idx] } }))));
   }
-  return out;
+  return { samples: out, deepLookups, rowsScanned };
 }

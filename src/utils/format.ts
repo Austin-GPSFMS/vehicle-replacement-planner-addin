@@ -51,6 +51,7 @@ export function formatMonths(months: number | null | undefined): string {
   if (months <= 0) return "now";
   if (months < 1) return "< 1 mo";
   if (months < 24) return `${Math.round(months)} mo`;
+  if (months > 600) return "> 50 yr";
   return `${(months / 12).toFixed(1)} yr`;
 }
 

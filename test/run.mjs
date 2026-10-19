@@ -112,6 +112,15 @@ check("pickSamplePair pairs the same diagnostic", () => {
   assert.equal(p.baseline.diagnosticId, "DiagnosticOdometerId");
 });
 
+// 9b. A vehicle that barely moves must not overflow Date (this blanked the page on gpsfms_pilot).
+check("near-zero rate → no date, no throw", () => {
+  const r = m.evaluate({ current: cur(100000), baseline: base(99999.99, 6), year: 2022 }, crit, now);
+  assert.ok(r.metersPerMonth > 0);
+  assert.ok(r.monthsToMileage > 600);
+  assert.equal(r.mileageDate, null);
+  assert.equal(r.verdict, "ok");
+});
+
 // 10. Demo fleet end-to-end through buildRows + CSV.
 check("demo fleet builds rows and CSV", () => {
   const fleet = m.makeDemoFleet(36, 7, now, 6);

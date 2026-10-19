@@ -169,3 +169,8 @@ html, body, #root { margin: 0; padding: 0; height: 100%; }
   padding: 24px; text-align: center; color: #6b7280; background: #f9fafb;
   border: 1px dashed #e5e7eb; border-radius: 6px;
 }
+
+.vrp-table-foot { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-top: 1px solid #e5e7eb; background: #f9fafb; }
+.vrp-error { display: flex; flex-direction: column; gap: 6px; }
+.vrp-error code { font-size: 12px; }
+.vrp-error pre { margin: 0; font-size: 11px; white-space: pre-wrap; color: #6b7280; max-height: 120px; overflow: auto; }

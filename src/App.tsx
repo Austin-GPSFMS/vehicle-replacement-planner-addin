@@ -25,6 +25,7 @@ import { CriteriaBar } from "./components/CriteriaBar";
 import { GroupFilterPicker } from "./components/GroupFilterPicker";
 import { Summary } from "./components/Summary";
 import { VehicleTable } from "./components/VehicleTable";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 interface AppProps {
   api: GeotabApi | null;
@@ -101,6 +102,9 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
         vinsMissing: fleet.devices.filter((d) => !d.vehicleIdentificationNumber).length,
         vinDecodeAvailable: true,
         odometerReadings: fleet.devices.length,
+        baselineReadings: fleet.devices.length,
+        deepLookups: 0,
+        rowsScanned: 0,
         apiCalls: 0,
         ranAt: Date.now(),
         lookbackMonths: settingsRef.current.criteria.lookbackMonths,
@@ -162,8 +166,9 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
             {meta && (
               <span className="vrp-muted">
                 {" "}
-                Scanned {formatDateTime(meta.ranAt)} · {meta.devicesInScope.toLocaleString()} vehicles
-                {meta.apiCalls ? ` · ${meta.apiCalls.toLocaleString()} API calls` : ""}
+                Scanned {formatDateTime(meta.ranAt)} · {meta.devicesInScope.toLocaleString()} vehicles ·{" "}
+                {meta.odometerReadings.toLocaleString()} with a current odometer · {meta.baselineReadings.toLocaleString()} with a baseline
+                {meta.apiCalls ? ` · ${meta.apiCalls.toLocaleString()} API calls (${meta.rowsScanned.toLocaleString()} readings scanned, ${meta.deepLookups.toLocaleString()} individual lookups)` : ""}
               </span>
             )}
           </p>
@@ -218,7 +223,17 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
                 const n = parseInt(e.target.value, 10);
                 setSettings((s) => ({ ...s, callsPerMinute: Number.isFinite(n) ? Math.max(100, Math.min(950, n)) : s.callsPerMinute }));
               }}
-              assistive="MyGeotab allows ~1000 per user per minute; the scan needs 2 per vehicle plus a few, and paces itself under this cap."
+              assistive="MyGeotab allows ~1000 per user per minute; the scan paces itself under this cap."
+            />
+            <TextInput
+              label="Max individual lookups per pass"
+              type="number"
+              value={String(settings.deepLookupMax)}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                setSettings((s) => ({ ...s, deepLookupMax: Number.isFinite(n) ? Math.max(0, Math.min(2000, n)) : s.deepLookupMax }));
+              }}
+              assistive="Vehicles with no odometer record in the fleet-wide windows (silent 14+ days now, or nothing within a week of the baseline) get one call each, up to this many. The rest show as no data."
             />
             <label className="vrp-toggle">
               <ToggleButton title="Show vehicles with no VIN" value={settings.includeNoVin} onChange={(v) => setSettings((s) => ({ ...s, includeNoVin: v }))} />
@@ -240,7 +255,9 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
         </section>
       )}
 
-      <CriteriaBar criteria={settings.criteria} onChange={setCriteria} busy={isScanning} onLookbackChange={onLookbackChange} />
+      <ErrorBoundary label="criteria">
+        <CriteriaBar criteria={settings.criteria} onChange={setCriteria} busy={isScanning} onLookbackChange={onLookbackChange} />
+      </ErrorBoundary>
 
       <div className="vrp-banners">
         {!insideMyGeotab && (
@@ -277,7 +294,7 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
       </div>
 
       {(meta || rows.length > 0) && (
-        <>
+        <ErrorBoundary label="results">
           <Summary rows={rows} meta={meta} criteria={settings.criteria} active={verdict} onPick={setVerdict} />
 
           <div className="vrp-toolbar">
@@ -290,7 +307,7 @@ export default function App({ api, pageState: _pageState, focusNonce }: AppProps
           <Tabs tabs={tabs} activeTabId={verdict} onTabChange={(id) => setVerdict(id as Verdict | "all")} />
 
           <VehicleTable rows={filtered} criteria={settings.criteria} busy={isScanning} myGeotabBase={myGeotabBase} />
-        </>
+        </ErrorBoundary>
       )}
     </div>
   );

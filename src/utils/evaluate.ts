@@ -44,6 +44,13 @@ export interface EvalOutput {
 
 /** Minimum span between samples before we trust the monthly rate. */
 export const MIN_SPAN_MONTHS = 0.75;
+/** Beyond this (50 years) a projection is shown as "> 50 yr" with no date. */
+export const MAX_PROJECTION_MONTHS = 600;
+
+function safeIso(d: Date): string | null {
+  const t = d.getTime();
+  return Number.isFinite(t) ? d.toISOString() : null;
+}
 
 export function evaluate(input: EvalInput, c: Criteria, now: Date): EvalOutput {
   const out: EvalOutput = {
@@ -88,14 +95,16 @@ export function evaluate(input: EvalInput, c: Criteria, now: Date): EvalOutput {
       if (out.odometerMeters >= thresholdM) {
         mileageMet = true;
         out.monthsToMileage = 0;
-        out.mileageDate = now.toISOString();
+        out.mileageDate = safeIso(now);
         out.reasons.push(
           `Odometer ${fmt(metersToUnit(out.odometerMeters, c.units))} ≥ ${fmt(c.mileageThreshold)} ${c.units}`
         );
       } else if (out.metersPerMonth != null && out.metersPerMonth > 0) {
         const months = (thresholdM - out.odometerMeters) / out.metersPerMonth;
         out.monthsToMileage = months;
-        out.mileageDate = addMonths(now, months).toISOString();
+        // A vehicle that barely moves projects thousands of years out; past the
+        // cap there is no meaningful date (and Date would overflow and throw).
+        out.mileageDate = months <= MAX_PROJECTION_MONTHS ? safeIso(addMonths(now, months)) : null;
         if (months <= c.horizonMonths) {
           mileageSoon = true;
           out.reasons.push(
@@ -124,7 +133,7 @@ export function evaluate(input: EvalInput, c: Criteria, now: Date): EvalOutput {
     if (out.ageYears != null && input.year != null) {
       ageEvaluable = true;
       const hitDate = new Date(input.year + c.ageThreshold, 0, 1);
-      out.ageDate = hitDate.toISOString();
+      out.ageDate = safeIso(hitDate);
       const months = monthsBetween(now, hitDate);
       out.monthsToAge = Math.max(0, months);
       if (out.ageYears >= c.ageThreshold) {

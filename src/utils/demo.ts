@@ -95,7 +95,8 @@ export function makeDemoFleet(count = 36, seed = 7, nowDate = new Date("2026-10-
     const ageYears = nowDate.getFullYear() - year;
     const perMonthMi = 600 + r() * 3400; // 600–4000 mi/mo
     const nowMi = Math.min(260000, ageYears * perMonthMi * 12 * (0.6 + r() * 0.6) + 5000);
-    const baseMi = Math.max(0, nowMi - perMonthMi * lookbackMonths * (0.85 + r() * 0.3));
+    // Every 17th vehicle barely moves (yard truck) — projection must not overflow.
+    const baseMi = i % 17 === 16 ? nowMi - 0.02 : Math.max(0, nowMi - perMonthMi * lookbackMonths * (0.85 + r() * 0.3));
     const nowAt = new Date(nowDate.getTime() - r() * 2 * 86400000).toISOString();
     const baseAt = new Date(baseInstant.getTime() + (r() - 0.5) * 3 * 86400000).toISOString();
     const nowSamples: OdometerSample[] = [

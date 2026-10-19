@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   criteria: DEFAULT_CRITERIA,
   groupIds: [],
   callsPerMinute: 600,
+  deepLookupMax: 300,
   includeNoVin: true,
 };
 
